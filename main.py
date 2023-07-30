@@ -1,8 +1,8 @@
-from collections import Counter
-from datetime import datetime, timedelta
+from datetime import timedelta, datetime
 
 import pandas as pd
 import plotly.express as px
+import pytz
 import requests
 import streamlit as st
 
@@ -61,14 +61,23 @@ def filter_values(df, column, min_val, max_val):
 
 
 @st.cache_data
-def fetch_and_process_data(start, end):
+def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
     """
-
     :type end: datetime
     :type start: datetime
+    :param tz: Timezone to Use for all DateTimes
     """
+    # Make sure start and end are in the provided timezone
+
+    start = datetime.combine(start, datetime.min.time())
+    end = datetime.combine(end, datetime.min.time())
+
+    start = start.astimezone(pytz.timezone(tz))
+    end = end.astimezone(pytz.timezone(tz))
+
     start_ums = date_to_unix_ms(start)
     end_ums = date_to_unix_ms(end)
+
     rolls = make_request("rolls",
                          "select=unix_milliseconds,dice_value,"
                          "channel:channels(name:channel_name),"
@@ -78,7 +87,8 @@ def fetch_and_process_data(start, end):
 
     if rolls:
         dataframe = pd.DataFrame(rolls)
-        dataframe["date_time"] = pd.to_datetime(dataframe["unix_milliseconds"], unit='ms')
+        dataframe["date_time"] = pd.to_datetime(dataframe["unix_milliseconds"], unit='ms', utc=True)
+        dataframe["date_time"] = dataframe["date_time"].dt.tz_convert(tz)  # Convert to the provided timezone
         dataframe["channel"] = dataframe["channel"].apply(lambda x: x['name'])
         dataframe["username"] = dataframe["username"].apply(lambda x: x['name'])
         dataframe.set_index('date_time', inplace=True)
