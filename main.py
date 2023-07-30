@@ -7,6 +7,9 @@ import requests
 import streamlit as st
 
 import layout
+from collections import Counter
+
+import plotly.graph_objects as go
 
 layout.apply_layout()
 
@@ -44,10 +47,28 @@ def date_to_unix_ms(date):
     return int(dt.timestamp() * 1000)
 
 
+def filter_values(df, column, min_val, max_val):
+    """
+    Filter dataframe based on a range (min_val, max_val) on a specific column.
+
+    :param df: DataFrame to be filtered
+    :param column: Name of the column to consider for filtering
+    :param min_val: Minimum acceptable value
+    :param max_val: Maximum acceptable value
+    :return: Filtered DataFrame
+    """
+    return df[(df[column] >= min_val) & (df[column] <= max_val)]
+
+
 @st.cache_data
-def fetch_and_process_data(start_date, end_date):
-    start_ums = date_to_unix_ms(start_date)
-    end_ums = date_to_unix_ms(end_date)
+def fetch_and_process_data(start, end):
+    """
+
+    :type end: datetime
+    :type start: datetime
+    """
+    start_ums = date_to_unix_ms(start)
+    end_ums = date_to_unix_ms(end)
     rolls = make_request("rolls",
                          "select=unix_milliseconds,dice_value,"
                          "channel:channels(name:channel_name),"
@@ -56,18 +77,20 @@ def fetch_and_process_data(start_date, end_date):
                          f"unix_milliseconds=lte.{end_ums}")
 
     if rolls:
-        df = pd.DataFrame(rolls)
-        df["date_time"] = pd.to_datetime(df["unix_milliseconds"], unit='ms')
-        df["channel"] = df["channel"].apply(lambda x: x['name'])
-        df["username"] = df["username"].apply(lambda x: x['name'])
-        df.set_index('date_time', inplace=True)
-        df.sort_index(inplace=True)
+        dataframe = pd.DataFrame(rolls)
+        dataframe["date_time"] = pd.to_datetime(dataframe["unix_milliseconds"], unit='ms')
+        dataframe["channel"] = dataframe["channel"].apply(lambda x: x['name'])
+        dataframe["username"] = dataframe["username"].apply(lambda x: x['name'])
+        dataframe.set_index('date_time', inplace=True)
+        dataframe.sort_index(inplace=True)
+
+        dataframe = filter_values(dataframe, "dice_value", 0, 100)
 
         # Calculate the minimum dice roll per day
-        min_roll_index = df.groupby(df.index.date)['dice_value'].idxmin()
-        df_min_daily_roll = df.loc[min_roll_index]
+        min_roll_index = dataframe.groupby(dataframe.index.date)['dice_value'].idxmin()
+        df_min_daily_roll = dataframe.loc[min_roll_index]
 
-        return df, df_min_daily_roll
+        return dataframe, df_min_daily_roll
     else:
         st.error('Error: Unable to retrieve data.')
         st.stop()
@@ -83,89 +106,109 @@ with st.sidebar:
     resetButton = st.button('Invalidate Cache')
 
 
-def plot(df, df_min):
-    # Distribution of Dice Values
-    fig = px.histogram(df, x="dice_value", nbins=100, title='Distribution of Dice Values')
-    fig.update_xaxes(title_text='Dice Value')
-    fig.update_yaxes(title_text='Frequency')
+def dice_value_histogram(dataframe):
+    fig = px.histogram(dataframe, x="dice_value", nbins=100, title='Dicey Distributions: A Look at Dice Values',
+                       labels={'dice_value': 'Dice Value', 'Frequency': 'Frequency'})
     st.plotly_chart(fig)
 
-    # Number of Rolls Per User
-    fig = px.bar(df['username'].value_counts().reset_index(), x='index', y='username', title='Number of Rolls Per User')
-    fig.update_xaxes(title_text='User')
-    fig.update_yaxes(title_text='Number of Rolls')
+
+def number_of_rolls_per_user(dataframe):
+    counts = dataframe['username'].value_counts().reset_index()
+    fig = px.bar(counts, x='index', y='username', labels={'index': 'User', 'username': 'Number of Rolls'},
+                 title='Roll Call: Frequency of User Rolls')
     st.plotly_chart(fig)
 
-    # Rolls Over Time
-    rolls_per_day = df.resample('D').count()
 
-    fig = px.line(x=rolls_per_day.index, y=rolls_per_day['dice_value'], title='Rolls Over Time')
-    fig.update_xaxes(title_text='Time')
-    fig.update_yaxes(title_text='Number of Rolls')
+def first_rolls_per_day(dataframe):
+    df_reset = dataframe.reset_index()
+    df_reset['date'] = df_reset['date_time'].dt.date
+    idx = df_reset.groupby('date')['unix_milliseconds'].idxmin()
+    earliest_roll_count = df_reset.loc[idx, 'username'].value_counts()
+    fig = px.bar(earliest_roll_count.reset_index(), x='index', y='username',
+                 title='Early Bird Rollers - Users With the Initial Daily Roll',
+                 labels={'index': 'User', 'username': 'Number of Initial Rolls'})
     st.plotly_chart(fig)
 
-    # Lowest Daily Rolls
-    df_min_reset = df_min.reset_index()
 
-    fig = px.bar(x=df_min_reset.index, y=df_min_reset['dice_value'], title='Lowest Daily Rolls')
-    fig.update_xaxes(title_text='Date')
-    fig.update_yaxes(title_text='Dice Value')
-    st.plotly_chart(fig)
-
-    # Roll Consistency per User
-    roll_count = df['username'].value_counts()
-    fig = px.bar(roll_count.reset_index(), x='index', y='username', title='Roll Consistency per User')
-    fig.update_xaxes(title_text='Username')
-    fig.update_yaxes(title_text='Count')
-    st.plotly_chart(fig)
-
-    # Roll Closest to Specific Time
-    df['time_diff'] = abs(df.index - df.index.to_series().dt.normalize().add(pd.DateOffset(hours=15)))
-    idx = df.groupby(df.index.date)['time_diff'].idxmin()
-    closest_to_three_pm = df.loc[idx, 'username']
-    table_data = closest_to_three_pm.reset_index().groupby('username')['date_time'].apply(list).apply(pd.Series).T
-    st.dataframe(table_data, column_config={"name": "Closest Rolls to 3PM"})
-    df.drop(columns=['time_diff'], inplace=True)
-
-    df_reset = df.reset_index()
+def last_rolls_per_day(dataframe):
+    df_reset = dataframe.reset_index()
     df_reset['date'] = df_reset['date_time'].dt.date
     idx = df_reset.groupby('date')['unix_milliseconds'].idxmax()
-    latest_roll_of_day = df_reset.loc[idx]
-    latest_roll_count = latest_roll_of_day['username'].value_counts()
-    fig = px.bar(latest_roll_count.reset_index(), x='index', y='username', title='Latest Roll of the Day')
+    latest_roll_count = df_reset.loc[idx, 'username'].value_counts()
+    fig = px.bar(latest_roll_count.reset_index(), x='index', y='username',
+                 title='Down to the Wire - Users With the Final Daily Roll',
+                 labels={'index': 'User', 'username': 'Number of Final Rolls'})
     st.plotly_chart(fig)
 
-    # Roll Probability
-    roll_probabilities = Counter(df['dice_value'])
-    total_rolls = sum(roll_probabilities.values())
-    for k in roll_probabilities:
-        roll_probabilities[k] /= total_rolls
-    fig = px.bar(x=list(roll_probabilities.keys()), y=list(roll_probabilities.values()), title='Roll Probability')
-    fig.update_xaxes(title_text='Dice Value')
-    fig.update_yaxes(title_text='Probability')
+
+def plot_roll_probability(dataframe):
+    roll_counts = Counter(dataframe['dice_value'])
+    total_rolls = sum(roll_counts.values())
+    roll_probabilities = {k: v / total_rolls for k, v in roll_counts.items()}
+    fig = px.bar(x=list(roll_probabilities.keys()), y=list(roll_probabilities.values()),
+                 title='Roll of the Dice: Probability Breakdown',
+                 labels={'x': 'Dice Value', 'y': 'Probability'})
+    fig.update_yaxes(tickformat=".2%")  # Formatting the y-axis ticks as percentages
     st.plotly_chart(fig)
 
-    # Day of the Week Analysis
-    day_of_week = df['dice_value'].groupby(df.index.dayofweek).mean()
-    fig = px.bar(day_of_week.reset_index(), x=day_of_week.index, y='dice_value', title='Day of the Week Analysis')
-    fig.update_xaxes(title_text='Day of Week')
-    fig.update_yaxes(title_text='Average Dice Value')
+
+def plot_weekday_analysis(dataframe):
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    day_of_week = dataframe['dice_value'].groupby(dataframe.index.dayofweek).mean().round(2)
+    day_of_week.index = day_of_week.index.map(dict(zip(range(7), days)))  # mapping numerical days to weekday names
+    fig = px.bar(x=day_of_week.index, y=day_of_week.values,
+                 title='Weekday Wonders: Average Dice Value',
+                 labels={'x': 'Day of Week', 'y': 'Average Dice Value'})
     st.plotly_chart(fig)
 
-    # Average Roll per User
-    avg_roll_per_user = df.groupby('username')['dice_value'].mean()
-    fig = px.bar(avg_roll_per_user.reset_index(), x='username', y='dice_value', title='Average Roll per User')
-    fig.update_xaxes(title_text='User')
-    fig.update_yaxes(title_text='Average Roll')
+
+def plot_avg_user_roll(dataframe):
+    avg_roll_per_user = dataframe.groupby('username')['dice_value'].mean().round(2)
+    avg_roll_per_user = avg_roll_per_user.sort_values(ascending=False)  # sort in descending order
+    fig = px.bar(x=avg_roll_per_user.index, y=avg_roll_per_user.values,
+                 title='Users and Their Lucky Numbers: Average Roll per User',
+                 labels={'x': 'User', 'y': 'Average Roll'})
     st.plotly_chart(fig)
 
-    # Average Roll per Calendar Date
-    avg_roll_per_date = df.resample('D')['dice_value'].mean().reset_index()
 
-    fig = px.line(avg_roll_per_date, x=avg_roll_per_date.index, y='dice_value', title='Average Roll per Calendar Date')
-    fig.update_xaxes(title_text='Date')
-    fig.update_yaxes(title_text='Average Roll')
+def plot_avg_roll_per_date(dataframe):
+    avg_roll_per_date = dataframe.resample('D')['dice_value'].mean().round(2)
+
+    # Create a full date range and interpolate
+    full_date_range = pd.date_range(start=avg_roll_per_date.index.min(),
+                                    end=avg_roll_per_date.index.max())
+    interpolated_data = avg_roll_per_date.reindex(full_date_range).interpolate(method='linear')
+
+    # Create a new figure
+    fig = go.Figure()
+
+    # Add interpolated data to the figure as a line
+    fig.add_trace(go.Scatter(x=interpolated_data.index, y=interpolated_data.values,
+                             mode='lines+markers', name='Interpolated Data'))
+
+    # Add actual data to the figure as markers
+    fig.add_trace(go.Scatter(x=avg_roll_per_date.index, y=avg_roll_per_date.values,
+                             mode='markers', name='Actual Data'))
+
+    fig.update_layout(title='Rolling Through Time: Average Roll per Calendar Date',
+                      xaxis_title='Date',
+                      yaxis_title='Average Roll',
+                      showlegend=True)
+
     st.plotly_chart(fig)
+
+
+def plot(dataframe, dataframe_min):
+    dice_value_histogram(dataframe)
+    first_rolls_per_day(dataframe)
+    last_rolls_per_day(dataframe)
+    plot_roll_probability(dataframe)
+    plot_weekday_analysis(dataframe)
+
+    number_of_rolls_per_user(dataframe)
+    plot_avg_user_roll(dataframe)
+
+    plot_avg_roll_per_date(dataframe)
 
 
 if confirmDatesButton:
@@ -178,8 +221,8 @@ if confirmDatesButton:
         end_date += timedelta(days=1)  # make end_date inclusive
         df, df_min = fetch_and_process_data(start_date, end_date)
 
-       # st.dataframe(df)  # Display the full dataframe in the app
-       # st.dataframe(df_min)  # Display the dataframe of minimum daily rolls
+        # st.dataframe(df)  # Display the full dataframe in the app
+        # st.dataframe(df_min)  # Display the dataframe of minimum daily rolls
 
         plot(df, df_min)
 
