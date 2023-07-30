@@ -165,9 +165,20 @@ def plot_weekday_analysis(dataframe):
 def plot_avg_user_roll(dataframe):
     avg_roll_per_user = dataframe.groupby('username')['dice_value'].mean().round(2)
     avg_roll_per_user = avg_roll_per_user.sort_values(ascending=False)  # sort in descending order
+
+    roll_count_per_user = dataframe['username'].value_counts().loc[avg_roll_per_user.index]  # count rolls per user
+
     fig = px.bar(x=avg_roll_per_user.index, y=avg_roll_per_user.values,
                  title='Users and Their Lucky Numbers: Average Roll per User',
                  labels={'x': 'User', 'y': 'Average Roll'})
+
+    # add line plot
+    fig.add_trace(go.Scatter(x=roll_count_per_user.index, y=roll_count_per_user.values,
+                             mode='lines', name='Number of Rolls'))
+
+    # update legend position
+    fig.update_layout(legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1))
+
     st.plotly_chart(fig)
 
 
