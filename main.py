@@ -55,8 +55,17 @@ def make_request(path, *params):
 
 
 def get_date_of_previous_sunday(input_date, weeks_before=1):
+    return get_date_of_previous_day(input_date, 6, weeks_before)
+
+
+def get_date_of_previous_day(input_date, target_weekday, weeks_before=1):
+    # Ensure target_weekday is in the range 0 to 6
+    if not 0 <= target_weekday <= 6:
+        raise ValueError('target_weekday should be in the range 0 (Monday) to 6 (Sunday)')
+
     date_weeks_before = input_date - timedelta(weeks=weeks_before)
-    days_to_subtract = (date_weeks_before.weekday() + 1) % 7
+    days_to_subtract = (date_weeks_before.weekday() - target_weekday) % 7
+
     return date_weeks_before - timedelta(days=days_to_subtract)
 
 
@@ -256,7 +265,7 @@ def plot_avg_roll_per_date(dataframe):
     # Create a full date range and interpolate
     full_date_range = pd.date_range(start=avg_roll_per_date.index.min(),
                                     end=avg_roll_per_date.index.max())
-    interpolated_data = avg_roll_per_date.reindex(full_date_range).interpolate(method='linear')
+    interpolated_data = avg_roll_per_date.reindex(full_date_range).interpolate(method='linear').round(2)
 
     # Create a new figure
     fig = go.Figure()
@@ -311,39 +320,71 @@ def overall_metrics(current_df, current_df_min):
     col1.metric("Total Rolls", total_rolls, None)
     col2.metric("Total Users", total_users, None)
     col3.metric("Total Days", total_days, None)
-    col3.metric("Average Rolls Per User", avg_rolls_per_user, None)
     col1.metric("Most Active User", most_active_user, None)
     col2.metric("Top Coffee Maker", top_coffee_maker, None)
+    col3.metric("Average Rolls Per User", avg_rolls_per_user, None)
 
 
-def compare_weekly_metrics(current_df, last_df):
+
+import streamlit as st
+import numpy as np
+
+def compare_weekly_metrics(current_df, current_df_min, last_df):
     # Function to calculate metrics
     def calc_metrics(df):
         total_rolls = df.shape[0]
         total_users = df['username'].nunique()
-        total_days = pd.Series(df.index.date).nunique()
         rolls_per_user = df['username'].value_counts()
         most_active_user = rolls_per_user.idxmax()
         avg_rolls_per_user = round(total_rolls / total_users, 1) if total_users != 0 else 0
-        return [total_rolls, total_users, total_days, avg_rolls_per_user, most_active_user]
+        roll_variance = np.var(df['dice_value']).round(2) if total_rolls != 0 else 0
+        return total_rolls, total_users, avg_rolls_per_user, most_active_user, roll_variance
 
     # Get metrics
-    current_metrics = calc_metrics(current_df)
-    last_metrics = calc_metrics(last_df)
+    current_rolls, current_users, current_avg_rolls, current_most_active, current_roll_variance = calc_metrics(current_df)
+    last_rolls, last_users, last_avg_rolls, last_most_active, last_roll_variance = calc_metrics(last_df)
+
+
+    coffee_maker_counts = current_df_min['username'].value_counts()
+    top_coffee_maker = coffee_maker_counts.idxmax()
 
     # Calculate deltas
-    deltas = [cur - last for cur, last in zip(current_metrics, last_metrics)]
+    delta_rolls = current_rolls - last_rolls
+    delta_users = current_users - last_users
+    delta_avg_rolls = current_avg_rolls - last_avg_rolls
+    delta_roll_variance = (current_roll_variance - last_roll_variance).round(2)
 
-    # Define metric names
-    metric_names = ["Total Rolls", "Total Users", "Total Days", "Average Rolls Per User", "Most Active User"]
+    # Set up columns for Streamlit
+    col1, col2, col3 = st.columns(3)
 
-    # Display metrics
-    for i in range(len(metric_names)):
-        st.metric(metric_names[i], current_metrics[i], deltas[i] if i != 4 else None)
+    # Display metrics in columns
+    col1.metric("Total Rolls", current_rolls, delta_rolls)
+    col1.metric("Most Active User", current_most_active)
+
+    col2.metric("Total Users", current_users, delta_users)
+    col2.metric("Top Coffee Maker", top_coffee_maker, None)
+
+    col3.metric("Roll Variance", current_roll_variance, delta_roll_variance)
+    col3.metric("Average Rolls Per User", current_avg_rolls, delta_avg_rolls)
 
 
 
+st.subheader("Weekly Metrics")
 
+# Current week's data
+current_today = datetime.today()
+current_sunday = get_date_of_previous_day(current_today, 0, 0)
+currentWeekDf, currentWeekDfMin = fetch_and_process_data(current_sunday, current_today)
+
+# Past week's data
+past_today = current_today - timedelta(days=7)
+past_sunday = get_date_of_previous_day(past_today, 0, 0)
+past_saturday = past_sunday + timedelta(days=6)  # The end of the past week
+
+pastWeekDf, pastWeekDfMin = fetch_and_process_data(past_sunday, past_saturday)
+
+# Comparison of the current week's metrics to the past week's
+compare_weekly_metrics(currentWeekDf, currentWeekDfMin, pastWeekDf)
 
 
 if confirmDatesButton:
