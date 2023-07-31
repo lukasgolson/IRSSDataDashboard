@@ -1,3 +1,4 @@
+import re
 from datetime import timedelta, datetime
 
 import pandas as pd
@@ -26,11 +27,29 @@ with st.sidebar:
         "Data is scrapped in near-realtime through our JavaJotter bot.")
 
 
+def get_next_offset(content_range):
+    """
+    Calculate the next offset for pagination based on the 'Content-Range' header.
+
+    :param content_range: The 'Content-Range' header from the HTTP response.
+    :return: The next offset for pagination.
+    """
+    # Parse the 'Content-Range' header.
+    start, end, total = re.match(r"(\d+)-(\d+)/(\*|\d+)", content_range).groups()
+
+    next_offset = int(end) + 1
+
+    return next_offset
+
+
 def make_request(path, *params):
     url = f"{API_URL}{path}?{'&'.join(params)}"
     response = requests.get(url, headers=HEADERS)
     if response.status_code == 200:
-        return response.json()
+
+        content_range = response.headers["Content-Range"]
+
+        return response.json(), content_range
     else:
         st.error(f"Request failed with status code {response.status_code}: {response.text}")
 
@@ -67,44 +86,62 @@ def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
     :type start: datetime
     :param tz: Timezone to Use for all DateTimes
     """
-    # Make sure start and end are in the provided timezone
-
-    start = datetime.combine(start, datetime.min.time())
-    end = datetime.combine(end, datetime.min.time())
-
-    start = start.astimezone(pytz.timezone(tz))
-    end = end.astimezone(pytz.timezone(tz))
+    # Convert start and end to the provided timezone
+    start = datetime.combine(start, datetime.min.time()).astimezone(pytz.timezone(tz))
+    end = datetime.combine(end, datetime.min.time()).astimezone(pytz.timezone(tz))
 
     start_ums = date_to_unix_ms(start)
     end_ums = date_to_unix_ms(end)
 
-    rolls = make_request("rolls",
-                         "select=unix_milliseconds,dice_value,"
-                         "channel:channels(name:channel_name),"
-                         "username:usernames(name:username)",
-                         f"unix_milliseconds=gte.{start_ums}",
-                         f"unix_milliseconds=lte.{end_ums}")
+    all_rolls = fetch_all_rolls(start_ums, end_ums)
 
-    if rolls:
-        dataframe = pd.DataFrame(rolls)
-        dataframe["date_time"] = pd.to_datetime(dataframe["unix_milliseconds"], unit='ms', utc=True)
-        dataframe["date_time"] = dataframe["date_time"].dt.tz_convert(tz)  # Convert to the provided timezone
-        dataframe["channel"] = dataframe["channel"].apply(lambda x: x['name'])
-        dataframe["username"] = dataframe["username"].apply(lambda x: x['name'])
-        dataframe.set_index('date_time', inplace=True)
-        dataframe.sort_index(inplace=True)
-
-        dataframe = filter_values(dataframe, "dice_value", 0, 100)
-
-        # Calculate the minimum dice roll per day
-        min_roll_index = dataframe.groupby(dataframe.index.date)['dice_value'].idxmin()
-        df_min_daily_roll = dataframe.loc[min_roll_index]
-
-        return dataframe, df_min_daily_roll
+    if all_rolls:
+        dataframe = process_data(all_rolls, tz)
+        return dataframe, get_min_daily_roll(dataframe)
     else:
         st.error('Error: Unable to retrieve data.')
         st.stop()
         return None, None
+
+
+def fetch_all_rolls(start_ums, end_ums, limit=500):
+    all_rolls = []
+    next_offset = 0
+
+    while True:
+        rolls, content_range = make_request("rolls",
+                                            "select=unix_milliseconds,dice_value,"
+                                            "channel:channels(name:channel_name),"
+                                            "username:usernames(name:username)",
+                                            f"unix_milliseconds=gte.{start_ums}",
+                                            f"unix_milliseconds=lte.{end_ums}",
+                                            f"limit={limit}",
+                                            f"offset={next_offset}")
+
+        if rolls:
+            all_rolls.extend(rolls)
+            next_offset = get_next_offset(content_range)
+        else:
+            break
+
+    return all_rolls
+
+
+def process_data(rolls, tz):
+    dataframe = pd.DataFrame(rolls)
+    dataframe["date_time"] = pd.to_datetime(dataframe["unix_milliseconds"], unit='ms', utc=True)
+    dataframe["date_time"] = dataframe["date_time"].dt.tz_convert(tz)  # Convert to the provided timezone
+    dataframe["channel"] = dataframe["channel"].apply(lambda x: x['name'])
+    dataframe["username"] = dataframe["username"].apply(lambda x: x['name'])
+    dataframe.set_index('date_time', inplace=True)
+    dataframe.sort_index(inplace=True)
+    return filter_values(dataframe, "dice_value", 0, 100)
+
+
+def get_min_daily_roll(dataframe):
+    # Calculate the minimum dice roll per day
+    min_roll_index = dataframe.groupby(dataframe.index.date)['dice_value'].idxmin()
+    return dataframe.loc[min_roll_index]
 
 
 start_date = get_date_of_previous_sunday(datetime.today(), 4)
@@ -240,12 +277,18 @@ if confirmDatesButton:
     else:
         start_date, end_date = dates
         end_date += timedelta(days=1)  # make end_date inclusive
+
         df, df_min = fetch_and_process_data(start_date, end_date)
 
-        # st.dataframe(df)  # Display the full dataframe in the app
-        # st.dataframe(df_min)  # Display the dataframe of minimum daily rolls
+        tab1, tab2 = st.tabs(["Plots", "Tables"])
 
-        plot(df, df_min)
+        with tab1:
+            plot(df, df_min)
+
+        with tab2:
+            st.dataframe(df)
+            st.dataframe(df_min)
 
 if resetButton:
+    st.balloons()
     st.cache_data.clear()
