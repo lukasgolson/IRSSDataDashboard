@@ -1,4 +1,5 @@
 import re
+import time
 from datetime import timedelta, datetime
 
 import pandas as pd
@@ -14,7 +15,7 @@ import plotly.graph_objects as go
 
 layout.apply_layout()
 
-API_URL = st.secrets['supabase_url'] # Get the URL from secrets
+API_URL = st.secrets['supabase_url']  # Get the URL from secrets
 API_KEY = st.secrets['supabase_key']  # Get the API key from secrets
 HEADERS = {'apikey': API_KEY}
 
@@ -40,19 +41,6 @@ def get_next_offset(content_range):
     next_offset = int(end) + 1
 
     return next_offset
-
-
-def make_request(path, *params):
-    url = f"{API_URL}{path}?{'&'.join(params)}"
-
-    response = requests.get(url, headers=HEADERS)
-    if response.status_code == 200:
-
-        content_range = response.headers["Content-Range"]
-
-        return response.json(), content_range
-    else:
-        st.error(f"Request failed with status code {response.status_code}: {response.text}")
 
 
 def get_date_of_previous_sunday(input_date, weeks_before=1):
@@ -115,25 +103,47 @@ def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
         return None, None
 
 
-def fetch_all_rolls(start_ums, end_ums, limit=500):
+@st.cache_data
+def make_request(path, *params):
+    url = f"{API_URL}{path}?{'&'.join(params)}"
+
+    st.write(url)
+
+    response = requests.get(url, headers=HEADERS)
+
+    if response.status_code == 200:
+
+        json_response = response.json()
+
+        if not json_response:
+            st.error(f"Empty Response from API: {json_response}")
+
+        return json_response
+    else:
+        st.error(f"Request failed with status code {response.status_code}: {response.text}")
+
+
+@st.cache_data
+def fetch_all_rolls(start_ums, end_ums):
     all_rolls = []
-    next_offset = 0
+    offset = 0
 
     while True:
-        rolls, content_range = make_request("rolls",
-                                            "select=unix_milliseconds,dice_value,"
-                                            "channel:channels(name:channel_name),"
-                                            "username:usernames(name:username)",
-                                            f"unix_milliseconds=gte.{start_ums}",
-                                            f"unix_milliseconds=lte.{end_ums}",
-                                            f"limit={limit}",
-                                            f"offset={next_offset}")
+        rolls = make_request("rolls",
+                             "select=unix_milliseconds,dice_value,"
+                             "channel:channels(name:channel_name),"
+                             "username:usernames(name:username)",
+                             f"unix_milliseconds=gte.{start_ums}",
+                             f"unix_milliseconds=lte.{end_ums}",
+                             f"offset={offset}")
 
-        if rolls:
-            all_rolls.extend(rolls)
-            next_offset = get_next_offset(content_range)
-        else:
+        if not rolls:  # Stop when there are no more rolls to fetch.
             break
+
+        all_rolls.extend(rolls)
+        offset += len(rolls)  # Increase offset by number of elements returned in this batch.
+
+        time.sleep(1)  # Wait for 1 second before the next request.
 
     return all_rolls
 
