@@ -14,8 +14,8 @@ import plotly.graph_objects as go
 
 layout.apply_layout()
 
-API_URL = "https://hacvffgmaquyyeiusnbi.supabase.co/rest/v1/"
-API_KEY = st.secrets['api_key']  # Get the API key from secrets
+API_URL = st.secrets['supabase_url'] # Get the URL from secrets
+API_KEY = st.secrets['supabase_key']  # Get the API key from secrets
 HEADERS = {'apikey': API_KEY}
 
 with st.sidebar:
@@ -44,6 +44,7 @@ def get_next_offset(content_range):
 
 def make_request(path, *params):
     url = f"{API_URL}{path}?{'&'.join(params)}"
+
     response = requests.get(url, headers=HEADERS)
     if response.status_code == 200:
 
@@ -133,8 +134,6 @@ def fetch_all_rolls(start_ums, end_ums, limit=500):
             next_offset = get_next_offset(content_range)
         else:
             break
-
-    st.json(all_rolls)
 
     return all_rolls
 
