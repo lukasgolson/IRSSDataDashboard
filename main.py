@@ -104,11 +104,12 @@ def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
 
     all_rolls = fetch_all_rolls(start_ums, end_ums)
 
-    if all_rolls:
+    if len(all_rolls) > 0:
         dataframe = process_data(all_rolls, tz)
         return dataframe, get_min_daily_roll(dataframe)
     else:
         st.error('Error: Unable to retrieve data.')
+
         st.stop()
         return None, None
 
@@ -132,6 +133,8 @@ def fetch_all_rolls(start_ums, end_ums, limit=500):
             next_offset = get_next_offset(content_range)
         else:
             break
+
+    st.json(all_rolls)
 
     return all_rolls
 
