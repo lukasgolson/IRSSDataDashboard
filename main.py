@@ -1,6 +1,5 @@
 import re
-import time
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone, time
 
 import pandas as pd
 import plotly.express as px
@@ -17,7 +16,6 @@ layout.apply_layout()
 
 API_URL = st.secrets['supabase_url']  # Get the URL from secrets
 API_KEY = st.secrets['supabase_key']  # Get the API key from secrets
-HEADERS = {'apikey': API_KEY}
 
 with st.sidebar:
     st.title("Java Jotter Dashboard")
@@ -60,8 +58,18 @@ def get_date_of_previous_day(input_date, target_weekday, weeks_before=1):
 
 def date_to_unix_ms(date):
     """Convert date to unix timestamp in ms"""
-    dt = datetime(date.year, date.month, date.day)
+    date = datetime(date.year, date.month, date.day, tzinfo=timezone.utc)
+
+    dt = datetime.combine(date, datetime.min.time())
+
     return int(dt.timestamp() * 1000)
+
+
+def unix_ms_to_date(timestamp):
+    """Convert unix timestamp in ms to datetime in the 'America/Los_Angeles' timezone"""
+    dt = datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+    dt_la = dt.astimezone(pytz.timezone('America/Los_Angeles'))
+    return dt_la
 
 
 def filter_values(dataframe, column, min_val, max_val):
@@ -78,23 +86,37 @@ def filter_values(dataframe, column, min_val, max_val):
 
 
 @st.cache_data
-def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
+def fetch_and_process_data(starttime: datetime, endtime: datetime, tz='America/Los_Angeles'):
     """
-    :type end: datetime
-    :type start: datetime
+    :type endtime: datetime
+    :type starttime: datetime
     :param tz: Timezone to Use for all DateTimes
     """
-    # Convert start and end to the provided timezone
-    start = datetime.combine(start, datetime.min.time()).astimezone(pytz.timezone(tz))
-    end = datetime.combine(end, datetime.min.time()).astimezone(pytz.timezone(tz))
 
-    start_ums = date_to_unix_ms(start)
-    end_ums = date_to_unix_ms(end)
+
+
+    # Create a timezone object for the Pacific Time Zone
+    pacific_tz = pytz.timezone(tz)
+
+    # Make it timezone-aware
+    starttime = pacific_tz.localize(starttime)
+    endtime = pacific_tz.localize(endtime)
+
+    start_ums = date_to_unix_ms(starttime)
+    end_ums = date_to_unix_ms(endtime)
+
+
+    if start_ums > end_ums:
+        tmp = end_ums
+        end_ums = start_ums
+        start_ums = tmp
+        st.warning("Start time greater than end time; flipping...")
 
     all_rolls = fetch_all_rolls(start_ums, end_ums)
 
     if len(all_rolls) > 0:
         dataframe = process_data(all_rolls, tz)
+
         return dataframe, get_min_daily_roll(dataframe)
     else:
         st.error('Error: Unable to retrieve data.')
@@ -106,17 +128,13 @@ def fetch_and_process_data(start, end, tz='America/Los_Angeles'):
 @st.cache_data
 def make_request(path, *params):
     url = f"{API_URL}{path}?{'&'.join(params)}"
-
-    st.write(url)
+    HEADERS = {'apikey': API_KEY, 'Accept': 'application/json'}
 
     response = requests.get(url, headers=HEADERS)
 
     if response.status_code == 200:
 
         json_response = response.json()
-
-        if not json_response:
-            st.error(f"Empty Response from API: {json_response}")
 
         return json_response
     else:
@@ -142,8 +160,6 @@ def fetch_all_rolls(start_ums, end_ums):
 
         all_rolls.extend(rolls)
         offset += len(rolls)  # Increase offset by number of elements returned in this batch.
-
-        time.sleep(1)  # Wait for 1 second before the next request.
 
     return all_rolls
 
@@ -349,7 +365,7 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
         rolls_per_user = df['username'].value_counts()
         most_active_user = rolls_per_user.idxmax()
         avg_rolls_per_user = round(total_rolls / total_users, 1) if total_users != 0 else 0
-        roll_variance = df['dice_value'].var().round(2) if total_rolls != 0 else 0
+        roll_variance = round(df['dice_value'].var(), 2) if total_rolls != 0 else 0
         return total_rolls, total_users, avg_rolls_per_user, most_active_user, roll_variance
 
     # Get metrics
@@ -364,7 +380,7 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
     delta_rolls = current_rolls - last_rolls
     delta_users = current_users - last_users
     delta_avg_rolls = current_avg_rolls - last_avg_rolls
-    delta_roll_variance = (current_roll_variance - last_roll_variance).round(2)
+    delta_roll_variance = round(current_roll_variance - last_roll_variance, 2)
 
     # Set up columns for Streamlit
     col1, col2, col3 = st.columns(3)
@@ -383,15 +399,14 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
 st.subheader("Weekly Metrics")
 
 # Current week's data
-current_today = datetime.today()
-current_sunday = get_date_of_previous_day(current_today, 0, 0)
-currentWeekDf, currentWeekDfMin = fetch_and_process_data(current_sunday, current_today)
+today = datetime.today()
+current_sunday = get_date_of_previous_day(today, 6, 1)
+current_saturday = current_sunday + timedelta(days=6) if current_sunday < today else today
+currentWeekDf, currentWeekDfMin = fetch_and_process_data(current_sunday, current_saturday)
 
 # Past week's data
-past_today = current_today - timedelta(days=7)
-past_sunday = get_date_of_previous_day(past_today, 0, 0)
-past_saturday = past_sunday + timedelta(days=6)  # The end of the past week
-
+past_sunday = get_date_of_previous_day(today, 6, 2)
+past_saturday = past_sunday + timedelta(days=6)
 pastWeekDf, pastWeekDfMin = fetch_and_process_data(past_sunday, past_saturday)
 
 # Comparison of the current week's metrics to the past week's
@@ -406,7 +421,10 @@ if confirmDatesButton:
         start_date, end_date = dates
         end_date += timedelta(days=1)  # make end_date inclusive
 
-        df, df_min = fetch_and_process_data(start_date, end_date)
+        start_datetime = datetime.combine(start_date, time())
+        end_datetime = datetime.combine(end_date, time())
+
+        df, df_min = fetch_and_process_data(start_datetime, end_datetime)
 
         st.subheader("Metrics for Selected Date Range")
 
