@@ -204,8 +204,29 @@ def plot_weekday_analysis(dataframe):
     day_of_week = dataframe['dice_value'].groupby(dataframe.index.dayofweek).mean().round(2)
     day_of_week.index = day_of_week.index.map(dict(zip(range(7), days)))  # mapping numerical days to weekday names
     fig = px.bar(x=day_of_week.index, y=day_of_week.values,
-                 title='Weekday Wonders: Average Dice Value',
+                 title='Weekday Wonders: Average Daily Dice Value',
                  labels={'x': 'Day of Week', 'y': 'Average Dice Value'})
+    st.plotly_chart(fig)
+
+
+def weekday_wonders_average_number_daily_rolls(dataframe):
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+    dataframe.index = pd.to_datetime(dataframe.index)
+
+    dataframe['date'] = dataframe.index.date
+
+    day_of_week = dataframe.groupby([dataframe['date'], dataframe.index.dayofweek]).count()['dice_value'].groupby(
+        level=1).mean()
+
+    day_of_week = day_of_week.round(2)
+
+    day_of_week.index = day_of_week.index.map(dict(zip(range(7), days)))
+
+    fig = px.bar(x=day_of_week.index, y=day_of_week.values,
+                 title='Weekday Wonders: Average Number of Daily Dice Rolls',
+                 labels={'x': 'Day of Week', 'y': 'Average Dice Rolls'})
+
     st.plotly_chart(fig)
 
 
@@ -262,11 +283,67 @@ def plot(dataframe, dataframe_min):
     last_rolls_per_day(dataframe)
     plot_roll_probability(dataframe)
     plot_weekday_analysis(dataframe)
+    weekday_wonders_average_number_daily_rolls(dataframe)
 
     number_of_rolls_per_user(dataframe)
     plot_avg_user_roll(dataframe)
 
     plot_avg_roll_per_date(dataframe)
+
+
+def overall_metrics(current_df, current_df_min):
+    total_rolls = current_df.shape[0]
+
+    total_users = current_df['username'].nunique()
+
+    total_days = pd.Series(current_df.index.date).nunique()
+
+    rolls_per_user = current_df['username'].value_counts()
+    most_active_user = rolls_per_user.idxmax()
+
+    coffee_maker_counts = current_df_min['username'].value_counts()
+    top_coffee_maker = coffee_maker_counts.idxmax()
+
+    avg_rolls_per_user = total_rolls / total_users if total_users != 0 else 0
+    avg_rolls_per_user = round(avg_rolls_per_user, 1)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Rolls", total_rolls, None)
+    col2.metric("Total Users", total_users, None)
+    col3.metric("Total Days", total_days, None)
+    col3.metric("Average Rolls Per User", avg_rolls_per_user, None)
+    col1.metric("Most Active User", most_active_user, None)
+    col2.metric("Top Coffee Maker", top_coffee_maker, None)
+
+
+def compare_weekly_metrics(current_df, last_df):
+    # Function to calculate metrics
+    def calc_metrics(df):
+        total_rolls = df.shape[0]
+        total_users = df['username'].nunique()
+        total_days = pd.Series(df.index.date).nunique()
+        rolls_per_user = df['username'].value_counts()
+        most_active_user = rolls_per_user.idxmax()
+        avg_rolls_per_user = round(total_rolls / total_users, 1) if total_users != 0 else 0
+        return [total_rolls, total_users, total_days, avg_rolls_per_user, most_active_user]
+
+    # Get metrics
+    current_metrics = calc_metrics(current_df)
+    last_metrics = calc_metrics(last_df)
+
+    # Calculate deltas
+    deltas = [cur - last for cur, last in zip(current_metrics, last_metrics)]
+
+    # Define metric names
+    metric_names = ["Total Rolls", "Total Users", "Total Days", "Average Rolls Per User", "Most Active User"]
+
+    # Display metrics
+    for i in range(len(metric_names)):
+        st.metric(metric_names[i], current_metrics[i], deltas[i] if i != 4 else None)
+
+
+
+
 
 
 if confirmDatesButton:
@@ -279,6 +356,10 @@ if confirmDatesButton:
         end_date += timedelta(days=1)  # make end_date inclusive
 
         df, df_min = fetch_and_process_data(start_date, end_date)
+
+        st.subheader("Metrics for Selected Date Range")
+
+        overall_metrics(df, df_min)
 
         tab1, tab2 = st.tabs(["Plots", "Tables"])
 

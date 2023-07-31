@@ -4,3 +4,4 @@ requests==2.31.0
 htbuilder~=0.6.1
 plotly~=5.15.0
 pytz~=2023.3
+numpy~=1.25.0
