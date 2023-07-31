@@ -75,17 +75,17 @@ def date_to_unix_ms(date):
     return int(dt.timestamp() * 1000)
 
 
-def filter_values(df, column, min_val, max_val):
+def filter_values(dataframe, column, min_val, max_val):
     """
     Filter dataframe based on a range (min_val, max_val) on a specific column.
 
-    :param df: DataFrame to be filtered
+    :param dataframe: DataFrame to be filtered
     :param column: Name of the column to consider for filtering
     :param min_val: Minimum acceptable value
     :param max_val: Maximum acceptable value
     :return: Filtered DataFrame
     """
-    return df[(df[column] >= min_val) & (df[column] <= max_val)]
+    return dataframe[(dataframe[column] >= min_val) & (dataframe[column] <= max_val)]
 
 
 @st.cache_data
@@ -170,7 +170,8 @@ def dice_value_histogram(dataframe):
 
 def number_of_rolls_per_user(dataframe):
     counts = dataframe['username'].value_counts().reset_index()
-    fig = px.bar(counts, x='index', y='username', labels={'index': 'User', 'username': 'Number of Rolls'},
+    counts.columns = ['username', 'count']
+    fig = px.bar(counts, x='username', y='count', labels={'username': 'User', 'count': 'Number of Rolls'},
                  title='Roll Call: Frequency of User Rolls')
     st.plotly_chart(fig)
 
@@ -179,10 +180,11 @@ def first_rolls_per_day(dataframe):
     df_reset = dataframe.reset_index()
     df_reset['date'] = df_reset['date_time'].dt.date
     idx = df_reset.groupby('date')['unix_milliseconds'].idxmin()
-    earliest_roll_count = df_reset.loc[idx, 'username'].value_counts()
-    fig = px.bar(earliest_roll_count.reset_index(), x='index', y='username',
-                 title='Early Bird Rollers - Users With the Initial Daily Roll',
-                 labels={'index': 'User', 'username': 'Number of Initial Rolls'})
+    earliest_roll_count = df_reset.loc[idx, 'username'].value_counts().reset_index()
+    earliest_roll_count.columns = ['username', 'count']
+    fig = px.bar(earliest_roll_count, x='username', y='count',
+                 title='Early Bird Rollers - Users and the Number of Times They Rolled First',
+                 labels={'username': 'User', 'count': 'Number of Initial Rolls'})
     st.plotly_chart(fig)
 
 
@@ -190,10 +192,11 @@ def last_rolls_per_day(dataframe):
     df_reset = dataframe.reset_index()
     df_reset['date'] = df_reset['date_time'].dt.date
     idx = df_reset.groupby('date')['unix_milliseconds'].idxmax()
-    latest_roll_count = df_reset.loc[idx, 'username'].value_counts()
-    fig = px.bar(latest_roll_count.reset_index(), x='index', y='username',
-                 title='Down to the Wire - Users With the Final Daily Roll',
-                 labels={'index': 'User', 'username': 'Number of Final Rolls'})
+    latest_roll_count = df_reset.loc[idx, 'username'].value_counts().reset_index()
+    latest_roll_count.columns = ['username', 'count']
+    fig = px.bar(latest_roll_count, x='username', y='count',
+                 title='Down to the Wire - Users and the Number of Times They Rolled Last',
+                 labels={'username': 'User', 'count': 'Number of Final Rolls'})
     st.plotly_chart(fig)
 
 
@@ -286,18 +289,19 @@ def plot_avg_roll_per_date(dataframe):
     st.plotly_chart(fig)
 
 
-def plot(dataframe, dataframe_min):
-    dice_value_histogram(dataframe)
-    first_rolls_per_day(dataframe)
-    last_rolls_per_day(dataframe)
-    plot_roll_probability(dataframe)
-    plot_weekday_analysis(dataframe)
-    weekday_wonders_average_number_daily_rolls(dataframe)
-
+def plot(dataframe):
     number_of_rolls_per_user(dataframe)
     plot_avg_user_roll(dataframe)
 
+    dice_value_histogram(dataframe)
+    plot_roll_probability(dataframe)
+
     plot_avg_roll_per_date(dataframe)
+    plot_weekday_analysis(dataframe)
+    weekday_wonders_average_number_daily_rolls(dataframe)
+
+    first_rolls_per_day(dataframe)
+    last_rolls_per_day(dataframe)
 
 
 def overall_metrics(current_df, current_df_min):
@@ -325,10 +329,6 @@ def overall_metrics(current_df, current_df_min):
     col3.metric("Average Rolls Per User", avg_rolls_per_user, None)
 
 
-
-import streamlit as st
-import numpy as np
-
 def compare_weekly_metrics(current_df, current_df_min, last_df):
     # Function to calculate metrics
     def calc_metrics(df):
@@ -337,13 +337,13 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
         rolls_per_user = df['username'].value_counts()
         most_active_user = rolls_per_user.idxmax()
         avg_rolls_per_user = round(total_rolls / total_users, 1) if total_users != 0 else 0
-        roll_variance = np.var(df['dice_value']).round(2) if total_rolls != 0 else 0
+        roll_variance = df['dice_value'].var().round(2) if total_rolls != 0 else 0
         return total_rolls, total_users, avg_rolls_per_user, most_active_user, roll_variance
 
     # Get metrics
-    current_rolls, current_users, current_avg_rolls, current_most_active, current_roll_variance = calc_metrics(current_df)
+    current_rolls, current_users, current_avg_rolls, current_most_active, current_roll_variance = calc_metrics(
+        current_df)
     last_rolls, last_users, last_avg_rolls, last_most_active, last_roll_variance = calc_metrics(last_df)
-
 
     coffee_maker_counts = current_df_min['username'].value_counts()
     top_coffee_maker = coffee_maker_counts.idxmax()
@@ -368,7 +368,6 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
     col3.metric("Average Rolls Per User", current_avg_rolls, delta_avg_rolls)
 
 
-
 st.subheader("Weekly Metrics")
 
 # Current week's data
@@ -385,7 +384,6 @@ pastWeekDf, pastWeekDfMin = fetch_and_process_data(past_sunday, past_saturday)
 
 # Comparison of the current week's metrics to the past week's
 compare_weekly_metrics(currentWeekDf, currentWeekDfMin, pastWeekDf)
-
 
 if confirmDatesButton:
     if len(dates) < 2:  # If the user did not select a second date
@@ -405,7 +403,7 @@ if confirmDatesButton:
         tab1, tab2 = st.tabs(["Plots", "Tables"])
 
         with tab1:
-            plot(df, df_min)
+            plot(df)
 
         with tab2:
             st.dataframe(df)
