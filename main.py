@@ -1,16 +1,17 @@
+import calendar
 import re
+from collections import Counter
 from datetime import timedelta, datetime, timezone, time
 
 import pandas as pd
 import plotly.express as px
+import plotly.figure_factory as ff
+import plotly.graph_objects as go
 import pytz
 import requests
 import streamlit as st
 
 import layout
-from collections import Counter
-
-import plotly.graph_objects as go
 
 layout.apply_layout()
 
@@ -152,7 +153,7 @@ def fetch_all_rolls(start_ums, end_ums):
                              f"unix_milliseconds=lte.{end_ums}",
                              f"offset={offset}")
 
-        if not rolls:  # Stop when there are no more rolls to fetch.
+        if not rolls:
             break
 
         all_rolls.extend(rolls)
@@ -347,10 +348,29 @@ def plot_scatter(dataframe):
 
 
 def plot_heatmap(dataframe):
-    roll_counts = dataframe.groupby([dataframe.index.date, 'dice_value']).size().unstack().fillna(0)
-    fig = px.imshow(roll_counts, color_continuous_scale='viridis',
-                    title='Heatmap of Dice Roll Frequencies',
-                    labels={'x': 'Dice Value', 'y': 'Date'})
+    dataframe.index = pd.to_datetime(dataframe.index)
+
+    dataframe['DayOfWeek'] = dataframe.index.dayofweek
+    dataframe['Month'] = dataframe.index.month
+
+    day_order = [6, 0, 1, 2, 3, 4, 5]
+    day_labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    month_order = list(range(1, 13))
+    month_labels = list(calendar.month_abbr)[1:]  # Get abbreviated month names
+
+    contributions = dataframe.groupby(['DayOfWeek', 'Month']).size().unstack().fillna(0)
+
+    contributions = contributions.reindex(index=day_order, columns=month_order, fill_value=0)
+
+    fig = ff.create_annotated_heatmap(z=contributions.values,
+                                      x=month_labels,
+                                      y=day_labels,
+                                      showscale=True)
+
+    fig.update_layout(title='Heatmap of Rolls',
+                      xaxis=dict(title='Month'),
+                      yaxis=dict(title='Day of the Week'))
+
     st.plotly_chart(fig)
 
 
@@ -423,7 +443,7 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
     # Calculate deltas
     delta_rolls = current_rolls - last_rolls
     delta_users = current_users - last_users
-    delta_avg_rolls = current_avg_rolls - last_avg_rolls
+    delta_avg_rolls = round(current_avg_rolls - last_avg_rolls,2)
     delta_roll_variance = round(current_roll_variance - last_roll_variance, 2)
 
     # Set up columns for Streamlit
