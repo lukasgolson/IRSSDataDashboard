@@ -93,8 +93,6 @@ def fetch_and_process_data(starttime: datetime, endtime: datetime, tz='America/L
     :param tz: Timezone to Use for all DateTimes
     """
 
-
-
     # Create a timezone object for the Pacific Time Zone
     pacific_tz = pytz.timezone(tz)
 
@@ -104,7 +102,6 @@ def fetch_and_process_data(starttime: datetime, endtime: datetime, tz='America/L
 
     start_ums = date_to_unix_ms(starttime)
     end_ums = date_to_unix_ms(endtime)
-
 
     if start_ums > end_ums:
         tmp = end_ums
@@ -317,6 +314,46 @@ def plot_avg_roll_per_date(dataframe):
     st.plotly_chart(fig)
 
 
+def plot_number_of_rolls_per_day(dataframe):
+    rolls_per_day = dataframe.resample('D').count()['dice_value']
+    fig = px.bar(x=rolls_per_day.index, y=rolls_per_day.values,
+                 title='Dicey Days: Number of Rolls per Day',
+                 labels={'x': 'Date', 'y': 'Number of Rolls'})
+    st.plotly_chart(fig)
+
+
+def plot_cumulative_rolls(dataframe):
+    cumulative_rolls = dataframe.resample('D').count()['dice_value'].cumsum()
+    fig = px.line(x=cumulative_rolls.index, y=cumulative_rolls.values,
+                  title='Rolling Along: Cumulative Number of Rolls Over Time',
+                  labels={'x': 'Date', 'y': 'Cumulative Number of Rolls'})
+    st.plotly_chart(fig)
+
+
+def plot_unique_users_per_day(dataframe):
+    unique_users_per_day = dataframe.resample('D')['username'].nunique()
+    fig = px.line(x=unique_users_per_day.index, y=unique_users_per_day.values,
+                  title='A Dicey Crowd: Number of Unique Users per Day',
+                  labels={'x': 'Date', 'y': 'Number of Unique Users'})
+    st.plotly_chart(fig)
+
+
+def plot_scatter(dataframe):
+    user_rolls = dataframe['username'].value_counts()
+    fig = px.scatter(x=user_rolls.index, y=user_rolls.values,
+                     title='User Activity',
+                     labels={'x': 'User', 'y': 'Total Rolls'})
+    st.plotly_chart(fig)
+
+
+def plot_heatmap(dataframe):
+    roll_counts = dataframe.groupby([dataframe.index.date, 'dice_value']).size().unstack().fillna(0)
+    fig = px.imshow(roll_counts, color_continuous_scale='viridis',
+                    title='Heatmap of Dice Roll Frequencies',
+                    labels={'x': 'Dice Value', 'y': 'Date'})
+    st.plotly_chart(fig)
+
+
 def plot(dataframe):
     number_of_rolls_per_user(dataframe)
     plot_avg_user_roll(dataframe)
@@ -330,6 +367,13 @@ def plot(dataframe):
 
     first_rolls_per_day(dataframe)
     last_rolls_per_day(dataframe)
+
+    plot_unique_users_per_day(dataframe)
+    plot_number_of_rolls_per_day(dataframe)
+    plot_cumulative_rolls(dataframe)
+
+    plot_scatter(dataframe)
+    plot_heatmap(dataframe)
 
 
 def overall_metrics(current_df, current_df_min):
