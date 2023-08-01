@@ -374,28 +374,6 @@ def plot_heatmap(dataframe):
     st.plotly_chart(fig)
 
 
-def plot(dataframe):
-    number_of_rolls_per_user(dataframe)
-    plot_avg_user_roll(dataframe)
-
-    dice_value_histogram(dataframe)
-    plot_roll_probability(dataframe)
-
-    plot_avg_roll_per_date(dataframe)
-    plot_weekday_analysis(dataframe)
-    weekday_wonders_average_number_daily_rolls(dataframe)
-
-    first_rolls_per_day(dataframe)
-    last_rolls_per_day(dataframe)
-
-    plot_unique_users_per_day(dataframe)
-    plot_number_of_rolls_per_day(dataframe)
-    plot_cumulative_rolls(dataframe)
-
-    plot_scatter(dataframe)
-    plot_heatmap(dataframe)
-
-
 def overall_metrics(current_df, current_df_min):
     total_rolls = current_df.shape[0]
 
@@ -429,13 +407,13 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
         rolls_per_user = df['username'].value_counts()
         most_active_user = rolls_per_user.idxmax()
         avg_rolls_per_user = round(total_rolls / total_users, 1) if total_users != 0 else 0
-        roll_variance = round(df['dice_value'].var(), 2) if total_rolls != 0 else 0
-        return total_rolls, total_users, avg_rolls_per_user, most_active_user, roll_variance
+        roll_std_dev = round(df['dice_value'].std(), 2) if total_rolls != 0 else 0
+        return total_rolls, total_users, avg_rolls_per_user, most_active_user, roll_std_dev
 
     # Get metrics
-    current_rolls, current_users, current_avg_rolls, current_most_active, current_roll_variance = calc_metrics(
+    current_rolls, current_users, current_avg_rolls, current_most_active, current_roll_std_dev = calc_metrics(
         current_df)
-    last_rolls, last_users, last_avg_rolls, last_most_active, last_roll_variance = calc_metrics(last_df)
+    last_rolls, last_users, last_avg_rolls, last_most_active, last_roll_std_dev = calc_metrics(last_df)
 
     coffee_maker_counts = current_df_min['username'].value_counts()
     top_coffee_maker = coffee_maker_counts.idxmax()
@@ -443,8 +421,8 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
     # Calculate deltas
     delta_rolls = current_rolls - last_rolls
     delta_users = current_users - last_users
-    delta_avg_rolls = round(current_avg_rolls - last_avg_rolls,2)
-    delta_roll_variance = round(current_roll_variance - last_roll_variance, 2)
+    delta_avg_rolls = round(current_avg_rolls - last_avg_rolls, 2)
+    delta_roll_std_dev = round(current_roll_std_dev - last_roll_std_dev, 2)
 
     # Set up columns for Streamlit
     col1, col2, col3 = st.columns(3)
@@ -456,7 +434,7 @@ def compare_weekly_metrics(current_df, current_df_min, last_df):
     col2.metric("Total Users", current_users, delta_users)
     col2.metric("Top Coffee Maker", top_coffee_maker, None)
 
-    col3.metric("Roll Variance", current_roll_variance, delta_roll_variance)
+    col3.metric("Roll Standard Deviation", current_roll_std_dev, delta_roll_std_dev)
     col3.metric("Average Rolls Per User", current_avg_rolls, delta_avg_rolls)
 
 
@@ -494,12 +472,31 @@ if confirmDatesButton:
 
         overall_metrics(df, df_min)
 
-        tab1, tab2 = st.tabs(["Plots", "Tables"])
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+            ["User Activity Analysis", "Dice Roll Analysis", "Time Series Analysis", "Weekday Analysis",
+             "General Plots", "Tables"])
 
         with tab1:
-            plot(df)
-
+            number_of_rolls_per_user(df)
+            plot_avg_user_roll(df)
+            plot_unique_users_per_day(df)
+            plot_number_of_rolls_per_day(df)
         with tab2:
+            dice_value_histogram(df)
+            plot_roll_probability(df)
+            plot_avg_roll_per_date(df)
+        with tab3:
+            first_rolls_per_day(df)
+            last_rolls_per_day(df)
+            plot_cumulative_rolls(df)
+        with tab4:
+            plot_weekday_analysis(df)
+            weekday_wonders_average_number_daily_rolls(df)
+        with tab5:
+            plot_scatter(df)
+            plot_heatmap(df)
+
+        with tab6:
             st.dataframe(df)
             st.dataframe(df_min)
 
