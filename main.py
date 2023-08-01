@@ -3,6 +3,7 @@ import re
 from collections import Counter
 from datetime import timedelta, datetime, timezone, time
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.figure_factory as ff
@@ -353,19 +354,32 @@ def plot_heatmap(dataframe):
     dataframe['DayOfWeek'] = dataframe.index.dayofweek
     dataframe['Month'] = dataframe.index.month
 
-    day_order = [6, 0, 1, 2, 3, 4, 5]
-    day_labels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-    month_order = list(range(1, 13))
-    month_labels = list(calendar.month_abbr)[1:]  # Get abbreviated month names
+    contributions = dataframe.groupby(['DayOfWeek', 'Month']).size().unstack()
 
-    contributions = dataframe.groupby(['DayOfWeek', 'Month']).size().unstack().fillna(0)
+    # Create a complete index list
+    complete_index = [0, 1, 2, 3, 4, 5, 6]
 
-    contributions = contributions.reindex(index=day_order, columns=month_order, fill_value=0)
+    for i in range(7):
+        if i not in contributions.index:
+            contributions.loc[i] = [np.nan] * len(contributions.columns)
 
-    fig = ff.create_annotated_heatmap(z=contributions.values,
-                                      x=month_labels,
-                                      y=day_labels,
-                                      showscale=True)
+    # Reindex the contributions dataframe with the complete index
+    contributions = contributions.reindex(index=complete_index)
+
+   # contributions.sort_index(ascending=False, inplace=True)
+
+    # Fill missing values with 0
+    contributions.fillna(0, inplace=True)
+
+    # Create labels for the heatmap
+    day_labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    month_labels = [calendar.month_abbr[i] for i in contributions.columns]
+
+    fig = go.Figure(data=go.Heatmap(z=contributions.values,
+                                    x=month_labels,
+                                    y=day_labels,
+                                    colorbar=dict(title='Rolls'),
+                                    hoverongaps=True))
 
     fig.update_layout(title='Heatmap of Rolls',
                       xaxis=dict(title='Month'),
