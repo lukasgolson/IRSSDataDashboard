@@ -86,6 +86,12 @@ def filter_values(dataframe, column, min_val, max_val):
     return dataframe[(dataframe[column] >= min_val) & (dataframe[column] <= max_val)]
 
 
+
+
+@st.cache_data
+def convert_df(df):
+   return df.to_csv(index=False).encode('utf-8')
+
 @st.cache_data
 def fetch_and_process_data(starttime: datetime, endtime: datetime, tz='America/Los_Angeles'):
     """
@@ -537,7 +543,19 @@ if confirmDatesButton:
 
         with tab6:
             st.dataframe(df)
+
+
+
             st.dataframe(df_min)
+
+            csv = convert_df(df)
+            st.download_button(
+                "Download Selected Range",
+                csv,
+                f"java_jotter_{start_datetime.date()}_to_{end_datetime.date()}.csv",
+                "text/csv",
+                key='download-csv'
+            )
 
 if resetButton:
     st.balloons()
