@@ -6,7 +6,6 @@ from datetime import timedelta, datetime, timezone, time
 import numpy as np
 import pandas as pd
 import plotly.express as px
-import plotly.figure_factory as ff
 import plotly.graph_objects as go
 import pytz
 import requests
@@ -340,14 +339,6 @@ def plot_unique_users_per_day(dataframe):
     st.plotly_chart(fig)
 
 
-def plot_scatter(dataframe):
-    user_rolls = dataframe['username'].value_counts()
-    fig = px.scatter(x=user_rolls.index, y=user_rolls.values,
-                     title='User Activity',
-                     labels={'x': 'User', 'y': 'Total Rolls'})
-    st.plotly_chart(fig)
-
-
 def plot_heatmap(dataframe):
     dataframe.index = pd.to_datetime(dataframe.index)
 
@@ -385,6 +376,39 @@ def plot_heatmap(dataframe):
                       xaxis=dict(title='Month'),
                       yaxis=dict(title='Day of the Week'))
 
+    st.plotly_chart(fig)
+
+
+def plot_min_daily_roll(min_dataframe):
+    # Create a unique list of usernames
+    unique_users = df_min['username'].unique()
+
+    # Create a color map for the unique users
+    color_map = px.colors.qualitative.Set1[:len(unique_users)]
+
+    # Create a bar chart using Plotly Express
+    fig = px.bar(df_min, x=df_min.index, y='dice_value', color='username',
+                 color_discrete_map={user: color for user, color in zip(unique_users, color_map)},
+                 title='Why Does my Coffee Taste Funky Today? - Users by Day and Their (Un)lucky Roll')
+
+    # Customize the appearance of the graph
+    fig.update_layout(xaxis_title='Date', yaxis_title='Roll Number')
+
+    # Display the graph using Streamlit's plotly_chart function
+    st.plotly_chart(fig)
+
+
+def total_lowest_rolls(min_dataframe):
+    user_roll_counts = df_min['username'].value_counts()
+
+    # Create a bar chart using Plotly Express
+    fig = px.bar(x=user_roll_counts.index, y=user_roll_counts.values,
+                 title='Practice Makes Perfect - Users and the Number of Times They Rolled Lowest')
+
+    # Customize the appearance of the graph
+    fig.update_layout(xaxis_title='Username', yaxis_title='Number of Lowest Rolls')
+
+    # Display the graph using Streamlit's plotly_chart function
     st.plotly_chart(fig)
 
 
@@ -500,6 +524,8 @@ if confirmDatesButton:
             plot_roll_probability(df)
             plot_avg_roll_per_date(df)
         with tab3:
+            plot_min_daily_roll(df_min)
+            total_lowest_rolls(df_min)
             first_rolls_per_day(df)
             last_rolls_per_day(df)
             plot_cumulative_rolls(df)
@@ -507,7 +533,6 @@ if confirmDatesButton:
             plot_weekday_analysis(df)
             weekday_wonders_average_number_daily_rolls(df)
         with tab5:
-            plot_scatter(df)
             plot_heatmap(df)
 
         with tab6:
